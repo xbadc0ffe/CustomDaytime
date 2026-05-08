@@ -1,7 +1,18 @@
 /*
- * Copyright (c) 2026 Seedim
- * This file is part of Custom Daytime, which is licensed under GPL-3.0.
- * See the LICENSE file in the project root for full license text.
+ *     Copyright (c) 2026 Seedim
+ *
+ *     This program is free software: you can redistribute it and/or modify
+ *     it under the terms of the GNU General Public License as published by
+ *     the Free Software Foundation, either version 3 of the License, or
+ *     (at your option) any later version.
+ *
+ *     This program is distributed in the hope that it will be useful,
+ *     but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *     GNU General Public License for more details.
+ *
+ *     You should have received a copy of the GNU General Public License
+ *     along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 plugins {
@@ -9,22 +20,17 @@ plugins {
     alias(libs.plugins.run.paper)
     alias(libs.plugins.shadow)
     alias(libs.plugins.plugin.yml)
-}
-
-repositories {
-    mavenCentral()
-    maven {
-        name = "papermc-repo"
-        url = uri("https://repo.papermc.io/repository/maven-public/")
-    }
+    alias(libs.plugins.minotaur)
 }
 
 dependencies {
     implementation(project(":common"))
 
     implementation(libs.bstats.bukkit)
+    implementation(libs.configurate.hocon)
 
-    compileOnly(libs.paper.api.get())
+    compileOnly(libs.paper.api)
+    compileOnly(libs.gson)
 }
 
 tasks {
@@ -70,11 +76,34 @@ tasks {
         dependsOn(shadowJar)
     }
 
+    jar {
+        enabled = false
+    }
+
     shadowJar {
+        archiveBaseName.set("CustomDaytimePaper")
+        archiveClassifier.set("")
         relocate("org.bstats", "xyz.mayahive.libs.bstats")
         relocate("org.spongepowered.configurate", "xyz.mayahive.customdaytime.lib.configurate")
         relocate("net.kyori.option", "xyz.mayahive.customdaytime.lib.kyori.option")
+        relocate("io.leangen.geantyref", "xyz.mayahive.customdaytime.lib.geantyref")
     }
+}
+
+modrinth {
+    token.set(System.getenv("MODRINTH_TOKEN"))
+    projectId.set("C7YliNqw")
+    versionNumber.set(version.toString())
+    versionType.set("release")
+    uploadFile.set(tasks.shadowJar)
+    gameVersions.addAll("26.1", "26.1.1", "26.1.2")
+    loaders.addAll("paper", "folia", "purpur")
+    syncBodyFrom = rootProject.file("README.md").readText()
+    changelog.set(System.getenv("CHANGELOG").takeUnless { it.isNullOrBlank() } ?: "No changelog provided")
+}
+
+tasks.modrinth {
+    dependsOn(tasks.modrinthSyncBody)
 }
 
 paper {

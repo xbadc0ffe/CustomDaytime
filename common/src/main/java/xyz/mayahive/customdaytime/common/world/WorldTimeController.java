@@ -35,8 +35,7 @@ public class WorldTimeController {
     private PlatformTask task;
     private PlatformWorld world;
 
-    private double dayIncrement;
-    private double nightIncrement;
+    private WorldTimeScale scale;
     private double accelerationMultiplier;
     private long lastObservedWorldTime = -1;
     boolean accelerationEnabled = true;
@@ -91,10 +90,9 @@ public class WorldTimeController {
         double nightMinutes = configService.getConfigValue(Double.class, 10.0, key.asString(), "nightLength");
         accelerationMultiplier = configService.getConfigValue(Double.class, 100.0, key.asString(), "AccelerationMultiplier");
 
-        dayIncrement = calculateIncrement(true, dayMinutes, nightMinutes);
-        nightIncrement = calculateIncrement(false, dayMinutes, nightMinutes);
+        scale = new WorldTimeScale(dayMinutes, nightMinutes);
 
-        DebugService.log(context, "Reloaded config for world " + key.asString() + " | dayIncrement=" + dayIncrement + " nightIncrement=" + nightIncrement + " accelerationMultiplier=" + accelerationMultiplier);
+        DebugService.log(context, "Reloaded config for world " + key.asString() + " | dayIncrement=" + scale.dayIncrement() + " nightIncrement=" + scale.nightIncrement() + " accelerationMultiplier=" + accelerationMultiplier);
     }
 
     private void tick() {
@@ -137,7 +135,7 @@ public class WorldTimeController {
 
         lastCycleTime = currentTime;
 
-        double increment = isDay ? dayIncrement : nightIncrement;
+        double increment = isDay ? scale.dayIncrement() : scale.nightIncrement();
 
         boolean nowAccelerating = shouldAccelerate(world, isDay);
 
@@ -187,14 +185,5 @@ public class WorldTimeController {
             DebugService.log(context, "Time acceleration stopped for world " + world.keyAsString());
         }
         accelerating = nowAccelerating;
-    }
-
-    private double calculateIncrement(boolean isDay, double dayMinutes, double nightMinutes) {
-
-        long halfDayWorldTicks = 12000;
-        long realSeconds = (long) ((isDay ? dayMinutes : nightMinutes) * 60);
-        long serverTicks = realSeconds * 20;
-
-        return (double) halfDayWorldTicks / serverTicks;
     }
 }

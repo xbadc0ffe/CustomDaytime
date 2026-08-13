@@ -17,22 +17,9 @@
 
 package xyz.mayahive.customdaytime.paper.correction;
 
-import com.destroystokyo.paper.event.entity.EntityAddToWorldEvent;
-import com.destroystokyo.paper.event.entity.EntityRemoveFromWorldEvent;
-import org.bukkit.Bukkit;
-import org.bukkit.Chunk;
-import org.bukkit.World;
-import org.bukkit.entity.Entity;
 import org.bukkit.entity.Villager;
 import org.bukkit.entity.memory.MemoryKey;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.Listener;
 import org.bukkit.plugin.Plugin;
-import xyz.mayahive.customdaytime.api.model.WorldKey;
-
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * VILLAGER_SLEEP — keeps villagers eligible to spawn iron golems on a stretched day.
@@ -42,17 +29,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * past it and natural iron golems stop spawning. Each sweep we advance {@code LAST_SLEPT} by the
  * un-scaled portion of elapsed ticks, so the vanilla check stays satisfied for one stretched cycle
  * after each real sleep and then lapses on its own.</p>
- *
- * <p>Villagers are tracked via a per-world set maintained from entity add/remove events (which fire
- * on the owning region thread) and seeded from already-loaded chunks on enable. Every memory op is
- * dispatched through the villager's {@code EntityScheduler}, so it is correct on Paper and Folia.</p>
  */
-public final class VillagerSleepCorrection extends AbstractScheduledCorrection implements Listener {
+public final class VillagerSleepCorrection extends TrackedVillagerCorrection {
 
     /** Vanilla counts a villager as "recently slept" for one vanilla day. */
     private static final long VANILLA_GOLEM_WINDOW_TICKS = 24000L;
-
-    private final Map<WorldKey, Set<Villager>> tracked = new ConcurrentHashMap<>();
 
     public VillagerSleepCorrection(Plugin plugin) {
         super(plugin);
@@ -69,39 +50,10 @@ public final class VillagerSleepCorrection extends AbstractScheduledCorrection i
     }
 
     @Override
-    protected void onWorldEnabled(WorldKey world) {
-        Set<Villager> villagers = tracked.computeIfAbsent(world, key -> ConcurrentHashMap.newKeySet());
-        seedLoadedChunks(world, villagers);
-    }
-
-    @Override
-    protected void onWorldDisabled(WorldKey world) {
-        tracked.remove(world);
-    }
-
-    @Override
-    protected void apply(Map<WorldKey, WorldSweep> sweeps) {
-        for (Map.Entry<WorldKey, WorldSweep> entry : sweeps.entrySet()) {
-            Set<Villager> villagers = tracked.get(entry.getKey());
-            if (villagers == null) continue;
-
-            long now = entry.getValue().now();
-            long advance = entry.getValue().delta();
-
-            // Correct EVERY villager, including sleeping ones. LAST_SLEPT is stamped at sleep start,
-            // so a villager waking from a full stretched night (>24000 ticks) would already be past
-            // the golem window; keeping the delta scaled throughout sleep is the whole point. Do NOT
-            // add an "isSleeping" skip here as an optimization.
-            for (Villager villager : villagers) {
-                villager.getScheduler().run(
-                        plugin(),
-                        task -> restamp(villager, now, advance),
-                        () -> villagers.remove(villager)); // retired: prune dead refs
-            }
-        }
-    }
-
-    private void restamp(Villager villager, long now, long advance) {
+    protected void applyToVillager(Villager villager, long now, long advance) {
+        // Applies to EVERY tracked villager, including sleeping ones. LAST_SLEPT is stamped at sleep
+        // start, so a villager waking from a full stretched night (>24000 ticks) would already be
+        // past the golem window; keeping the delta scaled throughout sleep is the whole point.
         Long lastSlept = villager.getMemory(MemoryKey.LAST_SLEPT);
         if (lastSlept == null) return;
 
@@ -111,38 +63,6 @@ public final class VillagerSleepCorrection extends AbstractScheduledCorrection i
         if (now - lastSlept < VANILLA_GOLEM_WINDOW_TICKS) {
             long next = Math.min(now, lastSlept + advance);
             if (next != lastSlept) villager.setMemory(MemoryKey.LAST_SLEPT, next);
-        }
-    }
-
-    // --- tracked-set maintenance: these events fire on the entity's owning region thread ---
-
-    @EventHandler
-    public void onEntityAdd(EntityAddToWorldEvent event) {
-        if (!(event.getEntity() instanceof Villager villager)) return;
-        Set<Villager> villagers = tracked.get(keyOf(villager.getWorld()));
-        if (villagers != null) villagers.add(villager);
-    }
-
-    @EventHandler
-    public void onEntityRemove(EntityRemoveFromWorldEvent event) {
-        if (!(event.getEntity() instanceof Villager villager)) return;
-        Set<Villager> villagers = tracked.get(keyOf(villager.getWorld()));
-        if (villagers != null) villagers.remove(villager);
-    }
-
-    // --- one-time bootstrap for chunks already loaded when we enable (mid-session enable/reload) ---
-
-    private void seedLoadedChunks(WorldKey key, Set<Villager> villagers) {
-        World world = resolve(key);
-        if (world == null) return;
-        // getLoadedChunks() is a structural snapshot; the actual entity access is deferred to each
-        // chunk's owning region thread via the region scheduler, so this is Folia-safe.
-        for (Chunk chunk : world.getLoadedChunks()) {
-            Bukkit.getRegionScheduler().run(plugin(), world, chunk.getX(), chunk.getZ(), task -> {
-                for (Entity entity : chunk.getEntities()) {
-                    if (entity instanceof Villager villager) villagers.add(villager);
-                }
-            });
         }
     }
 }

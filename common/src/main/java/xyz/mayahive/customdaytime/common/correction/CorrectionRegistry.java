@@ -45,12 +45,17 @@ public final class CorrectionRegistry {
 
     /** Enable every registered correction whose per-world toggle is on. Idempotent per world. */
     public void enableForWorld(WorldKey world) {
+        List<String> active = new ArrayList<>();
         for (Correction correction : corrections) {
             boolean enabled = context.configService().getConfigValue(
                     Boolean.class, correction.defaultEnabled(), world.asString(), "corrections", correction.key());
             if (enabled) {
                 correction.enable(world, scaleSupplier(world));
+                active.add(correction.key());
             }
+        }
+        if (!active.isEmpty()) {
+            context.platform().logger().info("Corrections active for world " + world.asString() + ": " + active);
         }
     }
 

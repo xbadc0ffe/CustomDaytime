@@ -25,6 +25,7 @@ import xyz.mayahive.customdaytime.common.bootstrap.AbstractBootstrap;
 import xyz.mayahive.customdaytime.common.context.CustomDaytimeContext;
 import xyz.mayahive.customdaytime.common.event.EventBus;
 import xyz.mayahive.customdaytime.common.service.ConfigService;
+import xyz.mayahive.customdaytime.paper.correction.PhantomSpawnCorrection;
 import xyz.mayahive.customdaytime.paper.correction.VillagerSleepCorrection;
 import xyz.mayahive.customdaytime.paper.listener.BedActivityListener;
 import xyz.mayahive.customdaytime.paper.listener.TimeSkipListener;
@@ -62,6 +63,9 @@ public final class CustomDaytimePaper extends JavaPlugin {
         VillagerSleepCorrection villagerSleep = new VillagerSleepCorrection(this);
         context.correctionRegistry().register(villagerSleep);
         Bukkit.getPluginManager().registerEvents(villagerSleep, this);
+
+        // Player-shaped correction: no Listener, no tracked set -- just registered.
+        context.correctionRegistry().register(new PhantomSpawnCorrection(this));
 
         context.correctionRegistry().enableForActiveWorlds();
     }

@@ -18,7 +18,6 @@
 package xyz.mayahive.customdaytime.paper.correction;
 
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
-import net.kyori.adventure.key.Key;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.plugin.Plugin;
@@ -137,18 +136,11 @@ public abstract class AbstractScheduledCorrection implements Correction {
     }
 
     protected final World resolve(WorldKey key) {
-        for (World world : Bukkit.getWorlds()) {
-            Key worldKey = world.getKey();
-            if (worldKey.namespace().equals(key.namespace()) && worldKey.value().equals(key.value())) {
-                return world;
-            }
-        }
-        return null;
+        return WorldKeys.resolve(key);
     }
 
     protected final WorldKey keyOf(World world) {
-        Key key = world.getKey();
-        return new WorldKey(key.namespace(), key.value());
+        return WorldKeys.of(world);
     }
 
     /** The current gameTime and the delta to apply for one world in a sweep. */

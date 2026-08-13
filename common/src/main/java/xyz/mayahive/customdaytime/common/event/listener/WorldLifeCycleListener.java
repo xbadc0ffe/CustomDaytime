@@ -44,6 +44,8 @@ public class WorldLifeCycleListener {
 
         context.worldTimeManager().start(key);
 
+        context.correctionRegistry().enableForWorld(key);
+
         if (platform.debug()) platform.logger().info("Registered WorldLoadEvent for world: " + key.asString());
     }
 
@@ -60,6 +62,8 @@ public class WorldLifeCycleListener {
         context.worldCache().unregisterWorld(world);
 
         context.worldTimeManager().stop(key);
+
+        context.correctionRegistry().disableForWorld(key);
 
         if (platform.debug()) platform.logger().info("Registered WorldUnloadEvent for world: " + key.asString());
     }

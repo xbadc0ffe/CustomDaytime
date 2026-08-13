@@ -22,8 +22,10 @@ import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
 import xyz.mayahive.customdaytime.api.platform.Platform;
 import xyz.mayahive.customdaytime.common.bootstrap.AbstractBootstrap;
+import xyz.mayahive.customdaytime.common.context.CustomDaytimeContext;
 import xyz.mayahive.customdaytime.common.event.EventBus;
 import xyz.mayahive.customdaytime.common.service.ConfigService;
+import xyz.mayahive.customdaytime.paper.correction.VillagerSleepCorrection;
 import xyz.mayahive.customdaytime.paper.listener.BedActivityListener;
 import xyz.mayahive.customdaytime.paper.listener.TimeSkipListener;
 import xyz.mayahive.customdaytime.paper.listener.WorldActivityListener;
@@ -46,12 +48,21 @@ public final class CustomDaytimePaper extends JavaPlugin {
 
         bootstrap.initialize();
 
-        EventBus eventBus = bootstrap.context().eventBus();
-        ConfigService configService = bootstrap.context().configService();
+        CustomDaytimeContext context = bootstrap.context();
+        EventBus eventBus = context.eventBus();
+        ConfigService configService = context.configService();
 
         Bukkit.getPluginManager().registerEvents(new BedActivityListener(eventBus), this);
         Bukkit.getPluginManager().registerEvents(new TimeSkipListener(configService), this);
         Bukkit.getPluginManager().registerEvents(new WorldActivityListener(eventBus), this);
         Bukkit.getPluginManager().registerEvents(new WorldListener(eventBus), this);
+
+        // Corrections: register the paper implementations, then catch up worlds that were
+        // synced during bootstrap (before registration). Sponge registers none and runs none.
+        VillagerSleepCorrection villagerSleep = new VillagerSleepCorrection(this);
+        context.correctionRegistry().register(villagerSleep);
+        Bukkit.getPluginManager().registerEvents(villagerSleep, this);
+
+        context.correctionRegistry().enableForActiveWorlds();
     }
 }

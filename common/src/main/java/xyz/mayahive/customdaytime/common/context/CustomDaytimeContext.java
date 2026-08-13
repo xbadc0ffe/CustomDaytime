@@ -20,6 +20,7 @@ package xyz.mayahive.customdaytime.common.context;
 import lombok.Getter;
 import xyz.mayahive.customdaytime.api.platform.Platform;
 import xyz.mayahive.customdaytime.common.cache.WorldCache;
+import xyz.mayahive.customdaytime.common.correction.CorrectionRegistry;
 import xyz.mayahive.customdaytime.common.event.EventBus;
 import xyz.mayahive.customdaytime.common.service.ConfigService;
 import xyz.mayahive.customdaytime.common.world.WorldTimeManager;
@@ -41,11 +42,15 @@ public class CustomDaytimeContext {
     @Getter
     private final EventBus eventBus;
 
+    @Getter
+    private final CorrectionRegistry correctionRegistry;
+
     public CustomDaytimeContext(Platform platform) {
         this.platform = platform;
         this.worldCache = new WorldCache();
         this.configService = new ConfigService(platform);
         this.worldTimeManager = new WorldTimeManager(this);
         this.eventBus = new EventBus();
+        this.correctionRegistry = new CorrectionRegistry(this);
     }
 }

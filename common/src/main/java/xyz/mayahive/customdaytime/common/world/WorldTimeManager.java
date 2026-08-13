@@ -23,6 +23,7 @@ import xyz.mayahive.customdaytime.common.context.CustomDaytimeContext;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 @RequiredArgsConstructor
 public class WorldTimeManager {
@@ -50,6 +51,11 @@ public class WorldTimeManager {
     public void stopAll() {
         controllers.values().forEach(WorldTimeController::stop);
         controllers.clear();
+    }
+
+    public Optional<WorldTimeScale> scale(WorldKey key) {
+        WorldTimeController controller = controllers.get(key);
+        return controller == null ? Optional.empty() : Optional.ofNullable(controller.scale());
     }
 
     public void setTotalPlayers(WorldKey key, int totalPlayers) {

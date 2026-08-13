@@ -35,6 +35,7 @@ public class WorldTimeController {
     private PlatformTask task;
     private PlatformWorld world;
 
+    @Getter
     private WorldTimeScale scale;
     private double accelerationMultiplier;
     private long lastObservedWorldTime = -1;

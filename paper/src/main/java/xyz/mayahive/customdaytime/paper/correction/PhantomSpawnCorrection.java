@@ -29,6 +29,7 @@ import xyz.mayahive.customdaytime.api.model.WorldKey;
 import xyz.mayahive.customdaytime.common.correction.Correction;
 import xyz.mayahive.customdaytime.common.world.WorldTimeScale;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -43,14 +44,11 @@ import java.util.function.Supplier;
  * {@code 1/cycleScale} of real time by subtracting the un-scaled portion each sweep, so insomnia
  * lands after roughly three stretched nights, as vanilla intends.</p>
  *
- * <p>Player-shaped rather than entity-shaped: no tracked set and no per-entity scheduler — the
- * sweep simply walks each world's online players and adjusts the statistic. This exercises the
- * {@link Correction} SPI against a non-villager correction; it needs neither {@code Listener} nor
- * any interface change.</p>
- *
- * <p>Folia note: the statistic read/write runs on the global region scheduler, not the player's
- * region thread. Correct on Paper; if a Folia thread check flags it, the isolated fix is to wrap
- * the per-player block in {@code player.getScheduler().run(...)}.</p>
+ * <p>Player-shaped rather than entity-shaped: no tracked set — players are enumerated cheaply from
+ * {@link Bukkit#getOnlinePlayers()}. This exercises the {@link Correction} SPI against a
+ * non-villager correction; it needs neither {@code Listener} nor any interface change. All
+ * player-state access (game mode, statistic) runs on the player's own region thread via
+ * {@link org.bukkit.entity.Entity#getScheduler() EntityScheduler}, so it is correct on Folia.</p>
  */
 public final class PhantomSpawnCorrection implements Correction {
 
@@ -97,10 +95,20 @@ public final class PhantomSpawnCorrection implements Correction {
     }
 
     private void sweep() {
+        // Phase 1 (global region thread): advance each world's baseline and compute this sweep's
+        // per-world reduction. World-time reads are world-global, safe on the global scheduler.
+        Map<WorldKey, Long> reductions = new HashMap<>();
         for (Map.Entry<WorldKey, WorldState> entry : worlds.entrySet()) {
             WorldState state = entry.getValue();
             World world = resolve(entry.getKey());
-            if (world == null) continue;
+            if (world == null) continue; // world unloaded; disable() removes it from the map
+
+            // Update the baseline UNCONDITIONALLY once the world resolves -- before the guards
+            // below. If this only ran when we actually corrected, a stretch of skipped sweeps (no
+            // scale yet, or cycleScale <= 1) would make the next elapsed span that whole gap and
+            // clamp TIME_SINCE_REST straight to 0 -- permanent phantom immunity.
+            long now = world.getGameTime();
+            long previous = state.lastSweepGameTime().getAndSet(now);
 
             WorldTimeScale scale = state.scale().get();
             if (scale == null) continue;
@@ -108,9 +116,7 @@ public final class PhantomSpawnCorrection implements Correction {
             double cycleScale = scale.cycleScale();
             if (cycleScale <= 1.0) continue; // nothing stretched -> no-op
 
-            long now = world.getGameTime();
-            long previous = state.lastSweepGameTime().getAndSet(now);
-            if (previous < 0L) continue; // first sweep: only record the baseline
+            if (previous < 0L) continue; // first sweep: baseline only
 
             // Delta-based, not multiplicative: subtract the un-scaled portion of the real ticks
             // that elapsed, using MEASURED elapsed gameTime so a late sweep still corrects fully.
@@ -120,19 +126,37 @@ public final class PhantomSpawnCorrection implements Correction {
             long reduction = (long) (elapsed * (1.0 - 1.0 / cycleScale));
             if (reduction <= 0L) continue;
 
-            for (Player player : world.getPlayers()) {
-                GameMode mode = player.getGameMode();
-                if (mode == GameMode.CREATIVE || mode == GameMode.SPECTATOR) continue; // can't trigger phantoms
-
-                int current = player.getStatistic(Statistic.TIME_SINCE_REST);
-                // Skip when already reset (a sleep zeroes it): nothing to slow, and clamping at 0
-                // below ensures the sleep reset is never driven negative.
-                if (current <= 0) continue;
-
-                int next = (int) Math.max(0L, current - reduction);
-                if (next != current) player.setStatistic(Statistic.TIME_SINCE_REST, next);
-            }
+            reductions.put(entry.getKey(), reduction);
         }
+
+        if (reductions.isEmpty()) return;
+
+        // Phase 2: apply on each player's own region thread (Folia-safe). foliaSupported = true, so
+        // the statistic read/write must not run off the player's owning region.
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            player.getScheduler().run(plugin, task -> reduceInsomnia(player, reductions), null);
+        }
+    }
+
+    private void reduceInsomnia(Player player, Map<WorldKey, Long> reductions) {
+        GameMode mode = player.getGameMode();
+        if (mode == GameMode.CREATIVE || mode == GameMode.SPECTATOR) return; // can't trigger phantoms
+
+        Long reduction = reductions.get(keyOf(player.getWorld()));
+        if (reduction == null) return; // player's world isn't being corrected this sweep
+
+        int current = player.getStatistic(Statistic.TIME_SINCE_REST);
+        // Skip when already reset (a sleep zeroes it): nothing to slow, and clamping at 0 below
+        // ensures the sleep reset is never driven negative.
+        if (current <= 0) return;
+
+        int next = (int) Math.max(0L, current - reduction);
+        if (next != current) player.setStatistic(Statistic.TIME_SINCE_REST, next);
+    }
+
+    private WorldKey keyOf(World world) {
+        Key key = world.getKey();
+        return new WorldKey(key.namespace(), key.value());
     }
 
     private World resolve(WorldKey key) {

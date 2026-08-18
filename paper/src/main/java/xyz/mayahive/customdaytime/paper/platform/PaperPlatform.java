@@ -36,6 +36,9 @@ public class PaperPlatform implements Platform {
 
     private final Plugin plugin;
 
+    /** Set once from config during bootstrap; volatile because corrections read it off other threads. */
+    private volatile boolean debug = false;
+
     @Override
     public PlatformType platform() {
         return PlatformType.PAPER;
@@ -78,6 +81,11 @@ public class PaperPlatform implements Platform {
 
     @Override
     public boolean debug() {
-        return false;
+        return debug;
+    }
+
+    @Override
+    public void debug(boolean debug) {
+        this.debug = debug;
     }
 }

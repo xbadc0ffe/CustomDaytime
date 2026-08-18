@@ -94,4 +94,16 @@ public interface Platform {
      * @return true if debug mode is on, false otherwise.
      */
     boolean debug();
+
+    /**
+     * Sets whether the project is in debug mode. Wired once during bootstrap, immediately after the
+     * config is loaded and before any world is synced, so startup diagnostics are not missed.
+     *
+     * <p>Defaults to a no-op: a platform that does not support a runtime debug toggle keeps whatever
+     * {@link #debug()} returns.</p>
+     *
+     * @param debug true to enable debug logging
+     */
+    default void debug(boolean debug) {
+    }
 }

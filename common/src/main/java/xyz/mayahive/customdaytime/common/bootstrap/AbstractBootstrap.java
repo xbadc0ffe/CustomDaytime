@@ -38,6 +38,11 @@ public abstract class AbstractBootstrap {
         Platform platform = platform();
 
         this.context = new CustomDaytimeContext(platform);
+
+        // Wire debug before CommonInitializerService: it syncs existing worlds, which starts the
+        // controllers and logs through DebugService. Setting it later would leave those dark.
+        platform.debug(context.configService().getConfigValue(Boolean.class, false, "debug"));
+
         CommonInitializerService.initialize(context);
 
         /*

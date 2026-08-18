@@ -22,24 +22,36 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.world.ClockTimeSkipEvent;
 import org.bukkit.event.world.TimeSkipEvent;
-import xyz.mayahive.customdaytime.common.service.ConfigService;
+import xyz.mayahive.customdaytime.api.model.WorldKey;
+import xyz.mayahive.customdaytime.common.context.CustomDaytimeContext;
+import xyz.mayahive.customdaytime.common.service.DebugService;
+import xyz.mayahive.customdaytime.paper.platform.PaperWorld;
 
 @RequiredArgsConstructor
 public class TimeSkipListener implements Listener {
 
-    private final ConfigService configService;
+    private final CustomDaytimeContext context;
 
     @EventHandler
     public void onTimeSkipEvent(TimeSkipEvent event) {
         String worldKey = event.getWorld().key().asString();
-        if (!configService.getRootKeys().contains(worldKey)) {return;}
+        if (!context.configService().getRootKeys().contains(worldKey)) {return;}
 
-        boolean accelerationEnabled = configService.getConfigValue(Boolean.class, true, event.getWorld().key().asString(), "accelerationEnabled");
+        if (!event.getSkipReason().equals(ClockTimeSkipEvent.SkipReason.NIGHT_SKIP)) {return;}
 
-        if (accelerationEnabled) {
-            if (event.getSkipReason().equals(ClockTimeSkipEvent.SkipReason.NIGHT_SKIP)) {
-                event.setCancelled(true);
-            }
+        // Cancel only when we will actually take the advancement over. Gating this on the
+        // controller's freshly recomputed decision -- rather than on an independent config read --
+        // is what keeps the cancel and the acceleration on one predicate. When the decision is
+        // false the skip is allowed through, so vanilla ends the night instead of time freezing.
+        WorldKey key = new PaperWorld(event.getWorld()).key();
+        boolean accelerate = context.worldTimeManager().wouldAccelerate(key);
+
+        DebugService.log(context, "NIGHT_SKIP for world " + worldKey
+                + " (skipAmount=" + event.getSkipAmount() + ", wouldAccelerate=" + accelerate + ") -> "
+                + (accelerate ? "cancelled; plugin accelerates" : "allowed; vanilla skips the night"));
+
+        if (accelerate) {
+            event.setCancelled(true);
         }
     }
 }

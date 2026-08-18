@@ -122,11 +122,10 @@ public class WorldTimeController {
 
         lastObservedWorldTime = currentTime;
 
-        long dayCycleTime = currentTime % 24000;
-        boolean isDay = dayCycleTime < 12000;
+        boolean isDay = isDay(currentTime);
 
         if (lastCycleTime != -1) {
-            boolean lastWasDay = (lastCycleTime % 24000) < 12000;
+            boolean lastWasDay = isDay(lastCycleTime);
             if (lastWasDay != isDay) {
                 DebugService.log(context, "Day/Night cycle change detected for world " + world.keyAsString() + " (lastCycleTime=" + lastCycleTime + ", currentTime=" + currentTime + ")");
                 reloadConfig();
@@ -159,6 +158,29 @@ public class WorldTimeController {
         }
 
         handleAccelerationEvent(world, nowAccelerating);
+    }
+
+    /**
+     * Day/night classification of a dayTime value. The single definition: the cycle-edge detection
+     * and the {@link #wouldAccelerate()} query must not derive this independently.
+     */
+    private static boolean isDay(long dayTime) {
+        return dayTime % 24000 < 12000;
+    }
+
+    /**
+     * Whether this world would be accelerated right now.
+     *
+     * <p>Recomputed from live world state on every call -- deliberately not the {@code accelerating}
+     * field, which is write-only bookkeeping and one tick stale by construction. This is what gates
+     * the vanilla night-skip cancel, so it must answer with the same predicate the acceleration
+     * itself uses; a second copy of that predicate is how the two paths diverged before.</p>
+     */
+    public boolean wouldAccelerate() {
+        if (world == null) return false;
+        return world.time()
+                .map(currentTime -> shouldAccelerate(world, isDay(currentTime)))
+                .orElse(false);
     }
 
     private boolean shouldAccelerate(PlatformWorld world, boolean isDay) {

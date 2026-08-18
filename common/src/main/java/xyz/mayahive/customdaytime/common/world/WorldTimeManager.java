@@ -41,7 +41,9 @@ public class WorldTimeManager {
     }
 
     public void stop(WorldKey key) {
-        WorldTimeController controller = controllers.get(key);
+        // Remove, don't just cancel: start() early-returns on containsKey, so leaving the entry
+        // behind means a world unload/reload cycle can never get a live controller again.
+        WorldTimeController controller = controllers.remove(key);
 
         if (controller == null) return;
 
@@ -51,6 +53,17 @@ public class WorldTimeManager {
     public void stopAll() {
         controllers.values().forEach(WorldTimeController::stop);
         controllers.clear();
+    }
+
+    /**
+     * Whether the plugin would accelerate this world right now, recomputed on call.
+     *
+     * <p>False when no controller manages the world: the plugin is not governing that world's time
+     * and must not suppress vanilla's night skip for it.</p>
+     */
+    public boolean wouldAccelerate(WorldKey key) {
+        WorldTimeController controller = controllers.get(key);
+        return controller != null && controller.wouldAccelerate();
     }
 
     public Optional<WorldTimeScale> scale(WorldKey key) {

@@ -24,7 +24,6 @@ import xyz.mayahive.customdaytime.api.platform.Platform;
 import xyz.mayahive.customdaytime.common.bootstrap.AbstractBootstrap;
 import xyz.mayahive.customdaytime.common.context.CustomDaytimeContext;
 import xyz.mayahive.customdaytime.common.event.EventBus;
-import xyz.mayahive.customdaytime.common.service.ConfigService;
 import xyz.mayahive.customdaytime.paper.correction.PhantomSpawnCorrection;
 import xyz.mayahive.customdaytime.paper.correction.PillagerPatrolCorrection;
 import xyz.mayahive.customdaytime.paper.correction.VillagerSleepCorrection;
@@ -38,6 +37,8 @@ import xyz.mayahive.customdaytime.paper.listener.WorldListener;
 import xyz.mayahive.customdaytime.paper.platform.PaperPlatform;
 
 public final class CustomDaytimePaper extends JavaPlugin {
+
+    private CustomDaytimeContext context;
 
     @Override
     public void onEnable() {
@@ -53,12 +54,11 @@ public final class CustomDaytimePaper extends JavaPlugin {
 
         bootstrap.initialize();
 
-        CustomDaytimeContext context = bootstrap.context();
+        this.context = bootstrap.context();
         EventBus eventBus = context.eventBus();
-        ConfigService configService = context.configService();
 
         Bukkit.getPluginManager().registerEvents(new BedActivityListener(eventBus), this);
-        Bukkit.getPluginManager().registerEvents(new TimeSkipListener(configService), this);
+        Bukkit.getPluginManager().registerEvents(new TimeSkipListener(context), this);
         Bukkit.getPluginManager().registerEvents(new WorldActivityListener(eventBus), this);
         Bukkit.getPluginManager().registerEvents(new WorldListener(eventBus), this);
 
@@ -88,5 +88,16 @@ public final class CustomDaytimePaper extends JavaPlugin {
         context.correctionRegistry().register(new WanderingTraderSpawnCorrection(this));
 
         context.correctionRegistry().enableForActiveWorlds();
+    }
+
+    @Override
+    public void onDisable() {
+        // Drop every controller on the way out. Bukkit cancels our scheduled tasks anyway, but
+        // without this the manager's map survives a re-enable that reuses the old instance, and
+        // stop() is never reached for a controller the map still holds.
+        if (context != null) {
+            context.worldTimeManager().stopAll();
+            context = null;
+        }
     }
 }

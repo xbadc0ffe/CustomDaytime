@@ -34,14 +34,18 @@ public class WorldActivityListener {
         Platform platform = context.platform();
         PlatformWorld world = event.world();
         WorldKey key = world.key();
-        int totalPlayers = world.playerCount();
 
+        // Sample INSIDE the delayed task, never at event time: PlayerQuitEvent fires while the
+        // quitting player is still in the world's player list, so an event-time read is actual + 1
+        // and inflates totalPlayers until the next join. Mirrors the sleeping-count handler below.
         context.platform().scheduler().runLater(
-                () -> context.worldTimeManager().setTotalPlayers(key, totalPlayers),
+                () -> {
+                    int totalPlayers = world.playerCount();
+                    context.worldTimeManager().setTotalPlayers(key, totalPlayers);
+                    if (platform.debug()) platform.logger().info("Registered WorldPlayerCountChangeEvent. Updated total players count to " + totalPlayers);
+                },
                 1
         );
-
-        if (platform.debug()) platform.logger().info("Registered WorldPlayerCountChangeEvent. Updated total players count to " + totalPlayers);
     }
 
     public void onWorldSleepingPlayerCountChange(WorldSleepingPlayerCountChangeEvent event) {

@@ -56,14 +56,14 @@ public class WorldTimeManager {
     }
 
     /**
-     * Whether the plugin would accelerate this world right now, recomputed on call.
+     * How the vanilla NIGHT_SKIP should be handled for this world right now, recomputed on call.
      *
-     * <p>False when no controller manages the world: the plugin is not governing that world's time
-     * and must not suppress vanilla's night skip for it.</p>
+     * <p>{@link NightSkipHandling#VANILLA} when no controller manages the world: the plugin is not
+     * governing that world's time and must not touch its night skip.</p>
      */
-    public boolean wouldAccelerate(WorldKey key) {
+    public NightSkipHandling nightSkipHandling(WorldKey key) {
         WorldTimeController controller = controllers.get(key);
-        return controller != null && controller.wouldAccelerate();
+        return controller == null ? NightSkipHandling.VANILLA : controller.nightSkipHandling();
     }
 
     public Optional<WorldTimeScale> scale(WorldKey key) {

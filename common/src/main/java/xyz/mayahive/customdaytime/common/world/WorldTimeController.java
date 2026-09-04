@@ -162,25 +162,27 @@ public class WorldTimeController {
 
     /**
      * Day/night classification of a dayTime value. The single definition: the cycle-edge detection
-     * and the {@link #wouldAccelerate()} query must not derive this independently.
+     * and the {@link #nightSkipHandling()} query must not derive this independently.
      */
     private static boolean isDay(long dayTime) {
         return dayTime % 24000 < 12000;
     }
 
     /**
-     * Whether this world would be accelerated right now.
+     * How the vanilla NIGHT_SKIP should be handled for this world right now.
      *
-     * <p>Recomputed from live world state on every call -- deliberately not the {@code accelerating}
-     * field, which is write-only bookkeeping and one tick stale by construction. This is what gates
-     * the vanilla night-skip cancel, so it must answer with the same predicate the acceleration
-     * itself uses; a second copy of that predicate is how the two paths diverged before.</p>
+     * <p>Deliberately independent of the sleeping-player counts: the event only fires once vanilla's
+     * own SleepStatus is satisfied, and that count is not reproducible from the Bukkit surface
+     * (SleepStatus excludes spectators and counts Paper's fauxSleeping flag). Recounting here is how
+     * the cancel and the skip disagreed — vanilla said "enough sleepers", the recount said no, and
+     * the raw vanilla jump went through. So this answers only what the event cannot: whether a live
+     * controller governs this clock, and whether the clock reads night or day.</p>
      */
-    public boolean wouldAccelerate() {
-        if (world == null) return false;
+    public NightSkipHandling nightSkipHandling() {
+        if (!accelerationEnabled || world == null) return NightSkipHandling.VANILLA;
         return world.time()
-                .map(currentTime -> shouldAccelerate(world, isDay(currentTime)))
-                .orElse(false);
+                .map(currentTime -> isDay(currentTime) ? NightSkipHandling.SUPPRESS_JUMP : NightSkipHandling.CANCEL)
+                .orElse(NightSkipHandling.VANILLA);
     }
 
     private boolean shouldAccelerate(PlatformWorld world, boolean isDay) {

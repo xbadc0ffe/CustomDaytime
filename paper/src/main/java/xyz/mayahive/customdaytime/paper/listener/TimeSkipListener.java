@@ -18,6 +18,8 @@
 package xyz.mayahive.customdaytime.paper.listener;
 
 import lombok.RequiredArgsConstructor;
+import org.bukkit.World;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.world.ClockTimeSkipEvent;
@@ -25,6 +27,7 @@ import org.bukkit.event.world.TimeSkipEvent;
 import xyz.mayahive.customdaytime.api.model.WorldKey;
 import xyz.mayahive.customdaytime.common.context.CustomDaytimeContext;
 import xyz.mayahive.customdaytime.common.service.DebugService;
+import xyz.mayahive.customdaytime.common.world.NightSkipHandling;
 import xyz.mayahive.customdaytime.paper.platform.PaperWorld;
 
 @RequiredArgsConstructor
@@ -39,19 +42,35 @@ public class TimeSkipListener implements Listener {
 
         if (!event.getSkipReason().equals(ClockTimeSkipEvent.SkipReason.NIGHT_SKIP)) {return;}
 
-        // Cancel only when we will actually take the advancement over. Gating this on the
-        // controller's freshly recomputed decision -- rather than on an independent config read --
-        // is what keeps the cancel and the acceleration on one predicate. When the decision is
-        // false the skip is allowed through, so vanilla ends the night instead of time freezing.
+        // The event itself is vanilla's proof that enough players are deep-sleeping; its SleepStatus
+        // count (spectators excluded, fauxSleeping included) is not reproducible from the Bukkit
+        // surface, so it must not be re-derived here. The decision covers only what the event cannot
+        // answer: does a live controller govern this clock, and is it night or day.
         WorldKey key = new PaperWorld(event.getWorld()).key();
-        boolean accelerate = context.worldTimeManager().wouldAccelerate(key);
+        NightSkipHandling handling = context.worldTimeManager().nightSkipHandling(key);
 
         DebugService.log(context, "NIGHT_SKIP for world " + worldKey
-                + " (skipAmount=" + event.getSkipAmount() + ", wouldAccelerate=" + accelerate + ") -> "
-                + (accelerate ? "cancelled; plugin accelerates" : "allowed; vanilla skips the night"));
+                + " (handling=" + handling
+                + ", skipAmount=" + event.getSkipAmount()
+                + ", fullTime=" + event.getWorld().getFullTime()
+                + ", sleeping=" + sleepingCount(event.getWorld()) + "/" + event.getWorld().getPlayerCount() + ")");
 
-        if (accelerate) {
-            event.setCancelled(true);
+        switch (handling) {
+            // Night on a governed world: the controller's acceleration replaces the vanilla jump.
+            case CANCEL -> event.setCancelled(true);
+            // Day-side skip on a governed world: vanilla still wakes everyone (and resets weather),
+            // but the clock must not move -- the wake marker resolves to its NEXT occurrence, so an
+            // unclamped skip here advances almost a whole day.
+            case SUPPRESS_JUMP -> event.setSkipAmount(0L);
+            case VANILLA -> {}
         }
+    }
+
+    private static int sleepingCount(World world) {
+        int count = 0;
+        for (Player player : world.getPlayers()) {
+            if (player.isSleeping()) count++;
+        }
+        return count;
     }
 }

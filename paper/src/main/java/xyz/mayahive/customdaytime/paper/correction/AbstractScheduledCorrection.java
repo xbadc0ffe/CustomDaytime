@@ -22,7 +22,9 @@ import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.plugin.Plugin;
 import xyz.mayahive.customdaytime.api.model.WorldKey;
+import xyz.mayahive.customdaytime.common.context.CustomDaytimeContext;
 import xyz.mayahive.customdaytime.common.correction.Correction;
+import xyz.mayahive.customdaytime.common.service.DebugService;
 import xyz.mayahive.customdaytime.common.world.WorldTimeScale;
 
 import java.util.HashMap;
@@ -49,15 +51,26 @@ public abstract class AbstractScheduledCorrection implements Correction {
     protected static final long SWEEP_INTERVAL_TICKS = 400L;
 
     private final Plugin plugin;
+    private final CustomDaytimeContext context;
     private final Map<WorldKey, WorldState> worlds = new ConcurrentHashMap<>();
     private ScheduledTask sweepTask;
 
-    protected AbstractScheduledCorrection(Plugin plugin) {
+    protected AbstractScheduledCorrection(Plugin plugin, CustomDaytimeContext context) {
         this.plugin = plugin;
+        this.context = context;
     }
 
     protected final Plugin plugin() {
         return plugin;
+    }
+
+    /** Whether debug logging is on (top-level {@code debug} config). Cheap; safe from any thread. */
+    protected final boolean debugEnabled() {
+        return context.platform().debug();
+    }
+
+    protected final void debugLog(String message) {
+        DebugService.log(context, message);
     }
 
     @Override
@@ -105,7 +118,12 @@ public abstract class AbstractScheduledCorrection implements Correction {
         for (Map.Entry<WorldKey, WorldState> entry : worlds.entrySet()) {
             WorldState state = entry.getValue();
             World world = resolve(entry.getKey());
-            if (world == null) continue; // world unloaded; disable() removes it from the map
+            if (world == null) {
+                // World unloaded; disable() removes it from the map. Baseline stays frozen here, so
+                // if this ever shows while the world is actually up, elapsed will span the gap.
+                if (debugEnabled()) debugLog("[" + key() + "] sweep skip " + entry.getKey().asString() + ": world unresolved (baseline frozen)");
+                continue;
+            }
 
             // Advance the baseline UNCONDITIONALLY once the world resolves, before the guards below,
             // so a run of skipped sweeps can't make the next elapsed span the whole gap.
@@ -113,19 +131,31 @@ public abstract class AbstractScheduledCorrection implements Correction {
             long previous = state.lastSweepGameTime().getAndSet(now);
 
             WorldTimeScale scale = state.scale().get();
-            if (scale == null) continue;
+            if (scale == null) {
+                if (debugEnabled()) debugLog("[" + key() + "] sweep skip " + entry.getKey().asString() + ": no scale (controller stopped?) — elapsed dropped, gameTime=" + now);
+                continue;
+            }
 
             double cycleScale = scale.cycleScale();
             if (cycleScale <= 1.0) continue; // nothing stretched -> no-op
 
-            if (previous < 0L) continue; // first sweep: baseline only
+            if (previous < 0L) {
+                if (debugEnabled()) debugLog("[" + key() + "] sweep " + entry.getKey().asString() + ": first sweep, baseline only, gameTime=" + now);
+                continue;
+            }
 
             // Measured elapsed gameTime, never a nominal interval: a late sweep still corrects fully.
             long elapsed = now - previous;
-            if (elapsed <= 0L) continue;
+            if (elapsed <= 0L) {
+                if (debugEnabled()) debugLog("[" + key() + "] sweep skip " + entry.getKey().asString() + ": elapsed=" + elapsed + ", gameTime=" + now);
+                continue;
+            }
 
             long delta = (long) (elapsed * (1.0 - 1.0 / cycleScale));
-            if (delta <= 0L) continue;
+            if (delta <= 0L) {
+                if (debugEnabled()) debugLog("[" + key() + "] sweep skip " + entry.getKey().asString() + ": delta=0 (elapsed=" + elapsed + ", cycleScale=" + cycleScale + ")");
+                continue;
+            }
 
             sweeps.put(entry.getKey(), new WorldSweep(now, delta));
         }

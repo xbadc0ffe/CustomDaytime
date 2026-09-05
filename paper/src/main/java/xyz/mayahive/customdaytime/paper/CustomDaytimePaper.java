@@ -64,16 +64,16 @@ public final class CustomDaytimePaper extends JavaPlugin {
 
         // Corrections: register the paper implementations, then catch up worlds that were
         // synced during bootstrap (before registration). Sponge registers none and runs none.
-        VillagerSleepCorrection villagerSleep = new VillagerSleepCorrection(this);
+        VillagerSleepCorrection villagerSleep = new VillagerSleepCorrection(this, context);
         context.correctionRegistry().register(villagerSleep);
         Bukkit.getPluginManager().registerEvents(villagerSleep, this);
 
-        VillagerStockCorrection villagerStock = new VillagerStockCorrection(this);
+        VillagerStockCorrection villagerStock = new VillagerStockCorrection(this, context);
         context.correctionRegistry().register(villagerStock);
         Bukkit.getPluginManager().registerEvents(villagerStock, this);
 
         // Player-shaped correction: no Listener, no tracked set -- just registered.
-        context.correctionRegistry().register(new PhantomSpawnCorrection(this));
+        context.correctionRegistry().register(new PhantomSpawnCorrection(this, context));
 
         // Default-off rate toggles.
         PillagerPatrolCorrection pillagerPatrol = new PillagerPatrolCorrection();

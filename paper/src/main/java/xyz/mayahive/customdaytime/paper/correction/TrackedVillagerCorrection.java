@@ -28,6 +28,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.plugin.Plugin;
 import xyz.mayahive.customdaytime.api.model.WorldKey;
+import xyz.mayahive.customdaytime.common.context.CustomDaytimeContext;
 
 import java.util.Map;
 import java.util.Set;
@@ -43,8 +44,8 @@ public abstract class TrackedVillagerCorrection extends AbstractScheduledCorrect
 
     private final Map<WorldKey, Set<Villager>> tracked = new ConcurrentHashMap<>();
 
-    protected TrackedVillagerCorrection(Plugin plugin) {
-        super(plugin);
+    protected TrackedVillagerCorrection(Plugin plugin, CustomDaytimeContext context) {
+        super(plugin, context);
     }
 
     /**
@@ -53,6 +54,18 @@ public abstract class TrackedVillagerCorrection extends AbstractScheduledCorrect
      * used by corrections that slow a stored timestamp and ignored by those that don't.
      */
     protected abstract void applyToVillager(Villager villager, long now, long delta);
+
+    /** Called once per world per sweep, before the per-villager dispatch. For diagnostics only. */
+    protected void onWorldSweep(WorldKey world, WorldSweep sweep, int trackedCount) {
+    }
+
+    /** Called when a villager actually enters the tracked set ({@code how}: add/seed). Diagnostics only. */
+    protected void onVillagerTracked(Villager villager, String how) {
+    }
+
+    /** Called when a villager actually leaves the tracked set ({@code how}: remove/retired). Diagnostics only. */
+    protected void onVillagerUntracked(Villager villager, String how) {
+    }
 
     @Override
     protected final void onWorldEnabled(WorldKey world) {
@@ -74,11 +87,15 @@ public abstract class TrackedVillagerCorrection extends AbstractScheduledCorrect
             long now = entry.getValue().now();
             long delta = entry.getValue().delta();
 
+            onWorldSweep(entry.getKey(), entry.getValue(), villagers.size());
+
             for (Villager villager : villagers) {
                 villager.getScheduler().run(
                         plugin(),
                         task -> applyToVillager(villager, now, delta),
-                        () -> villagers.remove(villager)); // retired: prune dead refs
+                        () -> { // retired: prune dead refs
+                            if (villagers.remove(villager)) onVillagerUntracked(villager, "retired");
+                        });
             }
         }
     }
@@ -87,14 +104,14 @@ public abstract class TrackedVillagerCorrection extends AbstractScheduledCorrect
     public void onEntityAdd(EntityAddToWorldEvent event) {
         if (!(event.getEntity() instanceof Villager villager)) return;
         Set<Villager> villagers = tracked.get(keyOf(villager.getWorld()));
-        if (villagers != null) villagers.add(villager);
+        if (villagers != null && villagers.add(villager)) onVillagerTracked(villager, "add");
     }
 
     @EventHandler
     public void onEntityRemove(EntityRemoveFromWorldEvent event) {
         if (!(event.getEntity() instanceof Villager villager)) return;
         Set<Villager> villagers = tracked.get(keyOf(villager.getWorld()));
-        if (villagers != null) villagers.remove(villager);
+        if (villagers != null && villagers.remove(villager)) onVillagerUntracked(villager, "remove");
     }
 
     private void seedLoadedChunks(WorldKey key, Set<Villager> villagers) {
@@ -105,7 +122,9 @@ public abstract class TrackedVillagerCorrection extends AbstractScheduledCorrect
         for (Chunk chunk : world.getLoadedChunks()) {
             Bukkit.getRegionScheduler().run(plugin(), world, chunk.getX(), chunk.getZ(), task -> {
                 for (Entity entity : chunk.getEntities()) {
-                    if (entity instanceof Villager villager) villagers.add(villager);
+                    if (entity instanceof Villager villager && villagers.add(villager)) {
+                        onVillagerTracked(villager, "seed");
+                    }
                 }
             });
         }

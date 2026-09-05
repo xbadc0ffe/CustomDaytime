@@ -23,6 +23,7 @@ import org.bukkit.Statistic;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import xyz.mayahive.customdaytime.api.model.WorldKey;
+import xyz.mayahive.customdaytime.common.context.CustomDaytimeContext;
 
 import java.util.Map;
 
@@ -41,8 +42,8 @@ import java.util.Map;
  */
 public final class PhantomSpawnCorrection extends AbstractScheduledCorrection {
 
-    public PhantomSpawnCorrection(Plugin plugin) {
-        super(plugin);
+    public PhantomSpawnCorrection(Plugin plugin, CustomDaytimeContext context) {
+        super(plugin, context);
     }
 
     @Override

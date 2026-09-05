@@ -17,9 +17,17 @@
 
 package xyz.mayahive.customdaytime.paper.correction;
 
+import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.entity.Villager;
 import org.bukkit.entity.memory.MemoryKey;
 import org.bukkit.plugin.Plugin;
+import xyz.mayahive.customdaytime.api.model.WorldKey;
+import xyz.mayahive.customdaytime.common.context.CustomDaytimeContext;
+
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * VILLAGER_SLEEP — keeps villagers eligible to spawn iron golems on a stretched day.
@@ -35,8 +43,11 @@ public final class VillagerSleepCorrection extends TrackedVillagerCorrection {
     /** Vanilla counts a villager as "recently slept" for one vanilla day. */
     private static final long VANILLA_GOLEM_WINDOW_TICKS = 24000L;
 
-    public VillagerSleepCorrection(Plugin plugin) {
-        super(plugin);
+    /** Villagers whose lapse (gap crossing the window) has been logged; cleared on a fresh sleep. */
+    private final Set<UUID> lapsed = ConcurrentHashMap.newKeySet();
+
+    public VillagerSleepCorrection(Plugin plugin, CustomDaytimeContext context) {
+        super(plugin, context);
     }
 
     @Override
@@ -55,14 +66,71 @@ public final class VillagerSleepCorrection extends TrackedVillagerCorrection {
         // start, so a villager waking from a full stretched night (>24000 ticks) would already be
         // past the golem window; keeping the delta scaled throughout sleep is the whole point.
         Long lastSlept = villager.getMemory(MemoryKey.LAST_SLEPT);
-        if (lastSlept == null) return;
+        if (lastSlept == null) {
+            if (debugEnabled()) debugLog("[" + key() + "] " + shortId(villager) + " skip: no LAST_SLEPT");
+            return;
+        }
+
+        long gap = now - lastSlept;
 
         // Guard at the vanilla window (24000), not the scaled one: because the delta grows at
         // 1/cycleScale, it reaches 24000 after exactly one stretched cycle, which is where
         // eligibility should lapse. Past that, leave the villager alone.
-        if (now - lastSlept < VANILLA_GOLEM_WINDOW_TICKS) {
+        if (gap < VANILLA_GOLEM_WINDOW_TICKS) {
+            if (lapsed.remove(villager.getUniqueId()) && debugEnabled()) {
+                debugLog("[" + key() + "] " + shortId(villager) + " RE-ENGAGED: fresh LAST_SLEPT (gap=" + gap + ")");
+            }
             long next = Math.min(now, lastSlept + advance);
-            if (next != lastSlept) villager.setMemory(MemoryKey.LAST_SLEPT, next);
+            if (next != lastSlept) {
+                villager.setMemory(MemoryKey.LAST_SLEPT, next);
+                if (debugEnabled()) debugLog("[" + key() + "] " + shortId(villager)
+                        + " lastSlept=" + lastSlept + " gap=" + gap + " wrote +" + (next - lastSlept) + " -> gap=" + (now - next));
+            } else if (debugEnabled()) {
+                debugLog("[" + key() + "] " + shortId(villager) + " lastSlept=" + lastSlept + " gap=" + gap + " no-op (current)");
+            }
+        } else {
+            if (lapsed.add(villager.getUniqueId()) && debugEnabled()) {
+                debugLog("[" + key() + "] " + shortId(villager)
+                        + " GAP CROSSED 24000 (gap=" + gap + ", lastSlept=" + lastSlept + ", gameTime=" + now
+                        + ") — correction disengaged until next real sleep");
+            }
+            if (debugEnabled()) debugLog("[" + key() + "] " + shortId(villager)
+                    + " lastSlept=" + lastSlept + " gap=" + gap + " skip: lapsed (gap >= 24000)");
         }
+    }
+
+    @Override
+    protected void onWorldSweep(WorldKey world, WorldSweep sweep, int trackedCount) {
+        if (!debugEnabled()) return;
+        World bukkit = resolve(world);
+        long dayTime = bukkit != null ? bukkit.getFullTime() % 24000 : -1;
+        debugLog("[" + key() + "] sweep " + world.asString()
+                + " gameTime=" + sweep.now() + " dayTime=" + dayTime
+                + " delta=" + sweep.delta() + " tracked=" + trackedCount);
+    }
+
+    @Override
+    protected void onVillagerTracked(Villager villager, String how) {
+        logTracking(villager, "TRACKED", how);
+    }
+
+    @Override
+    protected void onVillagerUntracked(Villager villager, String how) {
+        logTracking(villager, "UNTRACKED", how);
+    }
+
+    // The TRACKED/UNTRACKED pair timestamps every span a villager spends outside the tracked set
+    // (chunk unloads included): the gap grows at full rate across that span, which is the
+    // unload-deficit signature this logging exists to confirm or refute.
+    private void logTracking(Villager villager, String what, String how) {
+        if (!debugEnabled()) return;
+        Location loc = villager.getLocation();
+        debugLog("[" + key() + "] " + shortId(villager) + " " + what + " (" + how + ")"
+                + " chunk=" + (loc.getBlockX() >> 4) + "," + (loc.getBlockZ() >> 4)
+                + " gameTime=" + villager.getWorld().getGameTime());
+    }
+
+    private static String shortId(Villager villager) {
+        return villager.getUniqueId().toString().substring(0, 8);
     }
 }

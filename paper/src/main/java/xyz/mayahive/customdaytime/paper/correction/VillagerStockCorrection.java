@@ -24,6 +24,7 @@ import org.bukkit.inventory.MerchantRecipe;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.Plugin;
+import xyz.mayahive.customdaytime.common.context.CustomDaytimeContext;
 
 import java.util.List;
 
@@ -53,8 +54,8 @@ public final class VillagerStockCorrection extends TrackedVillagerCorrection {
 
     private final NamespacedKey lastRestockKey;
 
-    public VillagerStockCorrection(Plugin plugin) {
-        super(plugin);
+    public VillagerStockCorrection(Plugin plugin, CustomDaytimeContext context) {
+        super(plugin, context);
         this.lastRestockKey = new NamespacedKey(plugin, "last_driven_restock");
     }
 

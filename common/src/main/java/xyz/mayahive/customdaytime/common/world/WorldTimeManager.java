@@ -66,6 +66,13 @@ public class WorldTimeManager {
         return controller == null ? NightSkipHandling.VANILLA : controller.nightSkipHandling();
     }
 
+    /** Forward vanilla's "enough players are sleeping" verdict (a fired NIGHT_SKIP) to the controller. */
+    public void vanillaSleepSignal(WorldKey key) {
+        WorldTimeController controller = controllers.get(key);
+        if (controller == null) return;
+        controller.vanillaSleepSignal();
+    }
+
     public Optional<WorldTimeScale> scale(WorldKey key) {
         WorldTimeController controller = controllers.get(key);
         return controller == null ? Optional.empty() : Optional.ofNullable(controller.scale());

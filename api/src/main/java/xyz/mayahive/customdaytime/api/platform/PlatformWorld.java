@@ -58,7 +58,7 @@ public interface PlatformWorld {
 
 
     /**
-     * Returns number of players in this world.
+     * Returns number of players in this world that count toward the sleep percentage.
      *
      * @return player count
      */
@@ -72,6 +72,17 @@ public interface PlatformWorld {
     int sleepingPlayerCount();
 
     /**
+     * Returns the number of players that are not in a bed but still count as sleeping for the
+     * purpose of skipping the night (e.g. Paper's "sleeping ignored" flag, commonly set for AFK
+     * players). Platforms without such a notion return 0.
+     *
+     * @return number of players counted as sleeping without being in a bed
+     */
+    default int sleepingIgnoredPlayerCount() {
+        return 0;
+    }
+
+    /**
      * Returns whether the "doDaylightCycle" or equivalent game rule is enabled.
      *
      * @return true if time advances automatically, false otherwise
@@ -82,7 +93,7 @@ public interface PlatformWorld {
      * Returns the required percentage of players sleeping to skip the night,
      * if the platform supports this game rule.
      *
-     * @return a value between 0.0 and 100.0
+     * @return the percentage, 0 or greater (values above 100 disable night skipping)
      */
     int gameRulePlayerSleepingPercentage();
 }

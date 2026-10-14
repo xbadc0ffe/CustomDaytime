@@ -35,9 +35,9 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Base for villager corrections. Maintains a per-world set of villagers — populated from entity
+ * Base for villager corrections. Maintains a per-world set of villagers -- populated from entity
  * add/remove events (which fire on the owning region thread) and seeded from already-loaded chunks
- * on enable — and each sweep dispatches {@link #applyToVillager} for every tracked villager on its
+ * on enable -- and each sweep dispatches {@link #applyToVillager} for every tracked villager on its
  * own region thread. Subclasses implement only the per-villager change.
  */
 public abstract class TrackedVillagerCorrection extends AbstractScheduledCorrection implements Listener {
@@ -49,11 +49,12 @@ public abstract class TrackedVillagerCorrection extends AbstractScheduledCorrect
     }
 
     /**
-     * Apply this correction to one villager, on the villager's own region thread. {@code now} is the
-     * world gameTime; {@code delta} is the scaled per-sweep delta ({@code elapsed*(1 - 1/cycleScale)}),
-     * used by corrections that slow a stored timestamp and ignored by those that don't.
+     * Apply this correction to one villager, on the villager's own region thread. {@code sweep}
+     * carries the sweep's gameTime, the scaled per-sweep delta ({@code elapsed*(1 - 1/cycleScale)})
+     * and the cycle scale. The task may run later than the sweep if the villager's chunk is not
+     * ticking, so re-read the world's gameTime when the exact "now" matters.
      */
-    protected abstract void applyToVillager(Villager villager, long now, long delta);
+    protected abstract void applyToVillager(Villager villager, WorldSweep sweep);
 
     /** Called once per world per sweep, before the per-villager dispatch. For diagnostics only. */
     protected void onWorldSweep(WorldKey world, WorldSweep sweep, int trackedCount) {
@@ -84,15 +85,14 @@ public abstract class TrackedVillagerCorrection extends AbstractScheduledCorrect
             Set<Villager> villagers = tracked.get(entry.getKey());
             if (villagers == null) continue;
 
-            long now = entry.getValue().now();
-            long delta = entry.getValue().delta();
+            WorldSweep sweep = entry.getValue();
 
-            onWorldSweep(entry.getKey(), entry.getValue(), villagers.size());
+            onWorldSweep(entry.getKey(), sweep, villagers.size());
 
             for (Villager villager : villagers) {
                 villager.getScheduler().run(
                         plugin(),
-                        task -> applyToVillager(villager, now, delta),
+                        task -> applyToVillager(villager, sweep),
                         () -> { // retired: prune dead refs
                             if (villagers.remove(villager)) onVillagerUntracked(villager, "retired");
                         });

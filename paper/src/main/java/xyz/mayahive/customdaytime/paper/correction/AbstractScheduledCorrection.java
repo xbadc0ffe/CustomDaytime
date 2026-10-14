@@ -38,11 +38,11 @@ import java.util.function.Supplier;
  *
  * <p>It owns the sweep task, the per-world scale/baseline state, and the delta computation that all
  * scaled corrections share: each sweep it measures the real gameTime elapsed per world and hands the
- * subclass {@code delta = elapsed * (1 - 1/cycleScale)} — the un-scaled portion to add or subtract.
- * Subclasses decide what to do with it in {@link #apply(Map)}.</p>
+ * subclass {@code delta = elapsed * (1 - 1/cycleScale)} -- the un-scaled portion to add or subtract --
+ * together with the current cycle scale. Subclasses decide what to do with it in {@link #apply(Map)}.</p>
  *
  * <p>The sweep baseline ({@code lastSweepGameTime}) is advanced UNCONDITIONALLY the moment a world
- * resolves — before the "no scale yet" / "cycleScale &le; 1" guards — so a run of skipped sweeps can
+ * resolves -- before the "no scale yet" / "cycleScale &le; 1" guards -- so a run of skipped sweeps can
  * never make a later {@code elapsed} span the whole gap.</p>
  */
 public abstract class AbstractScheduledCorrection implements Correction {
@@ -92,7 +92,7 @@ public abstract class AbstractScheduledCorrection implements Correction {
         }
     }
 
-    /** Called once when a world is first enabled — for per-world subclass state (e.g. tracked sets). */
+    /** Called once when a world is first enabled -- for per-world subclass state (e.g. tracked sets). */
     protected void onWorldEnabled(WorldKey world) {
     }
 
@@ -101,9 +101,9 @@ public abstract class AbstractScheduledCorrection implements Correction {
     }
 
     /**
-     * Apply this sweep. {@code sweeps} holds, per world being corrected, the current gameTime and the
-     * delta to apply. Dispatch every entity-state access through {@code entity.getScheduler()} so it
-     * runs on the entity's owning region thread (Folia-safe).
+     * Apply this sweep. {@code sweeps} holds, per world being corrected, the current gameTime, the
+     * delta to apply and the cycle scale. Dispatch every entity-state access through
+     * {@code entity.getScheduler()} so it runs on the entity's owning region thread (Folia-safe).
      */
     protected abstract void apply(Map<WorldKey, WorldSweep> sweeps);
 
@@ -132,7 +132,7 @@ public abstract class AbstractScheduledCorrection implements Correction {
 
             WorldTimeScale scale = state.scale().get();
             if (scale == null) {
-                if (debugEnabled()) debugLog("[" + key() + "] sweep skip " + entry.getKey().asString() + ": no scale (controller stopped?) — elapsed dropped, gameTime=" + now);
+                if (debugEnabled()) debugLog("[" + key() + "] sweep skip " + entry.getKey().asString() + ": no scale (controller stopped?) -- elapsed dropped, gameTime=" + now);
                 continue;
             }
 
@@ -157,7 +157,7 @@ public abstract class AbstractScheduledCorrection implements Correction {
                 continue;
             }
 
-            sweeps.put(entry.getKey(), new WorldSweep(now, delta));
+            sweeps.put(entry.getKey(), new WorldSweep(now, delta, cycleScale));
         }
 
         if (!sweeps.isEmpty()) {
@@ -173,8 +173,11 @@ public abstract class AbstractScheduledCorrection implements Correction {
         return WorldKeys.of(world);
     }
 
-    /** The current gameTime and the delta to apply for one world in a sweep. */
-    protected record WorldSweep(long now, long delta) {
+    /**
+     * One world's sweep: the gameTime the sweep was taken at, the un-scaled delta for incremental
+     * corrections, and the cycle scale for corrections that compute an absolute target.
+     */
+    protected record WorldSweep(long now, long delta, double cycleScale) {
     }
 
     private record WorldState(Supplier<WorldTimeScale> scale, AtomicLong lastSweepGameTime) {

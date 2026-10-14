@@ -30,6 +30,17 @@ import xyz.mayahive.customdaytime.common.service.DebugService;
 @RequiredArgsConstructor
 public class WorldTimeController {
 
+    /**
+     * How many controller ticks a vanilla night-skip signal stays fresh. The server runs the sleep
+     * check inside the world tick, after this controller's global-scheduler tick in the same server
+     * tick, so a signal is normally exactly one tick old when read; two allows for Folia, where the
+     * global tick and the region ticks are not ordered.
+     */
+    private static final long VANILLA_SLEEP_SIGNAL_TTL_TICKS = 2L;
+
+    /** Minimum controller ticks between two "external time change" debug lines. */
+    private static final long RESYNC_LOG_INTERVAL_TICKS = 200L;
+
     private final CustomDaytimeContext context;
     private final WorldKey key;
     private PlatformTask task;
@@ -54,6 +65,13 @@ public class WorldTimeController {
     private long lastCycleTime = -1;
     private long baseTime;
     private long accumulatedTicks;
+
+    // volatile: the signal is stamped from whichever thread fires the night-skip event and read on
+    // the controller's thread. One thread on Paper; harmless insurance on Folia.
+    private volatile long tickCounter = 0;
+    private volatile long vanillaSleepSignalTick = Long.MIN_VALUE;
+    private long lastResyncLogTick = Long.MIN_VALUE;
+    private long suppressedResyncLogs = 0;
 
     public void start() {
         world = context.worldCache().getWorld(key);
@@ -97,6 +115,8 @@ public class WorldTimeController {
     }
 
     private void tick() {
+        tickCounter++;
+
         if (world == null) {
             DebugService.log(context, "World is null, stopping controller: " + key.asString());
             stop();
@@ -113,7 +133,7 @@ public class WorldTimeController {
         if (lastObservedWorldTime != -1) {
             long expectedTime = baseTime + accumulatedTicks;
             if (Math.abs(currentTime - expectedTime) > 20) {
-                DebugService.log(context, "External time change detected. Resynchronizing controller.");
+                logResync(currentTime, expectedTime);
                 baseTime = currentTime;
                 accumulatedTicks = 0;
                 carry = 0;
@@ -157,7 +177,7 @@ public class WorldTimeController {
             }
         }
 
-        handleAccelerationEvent(world, nowAccelerating);
+        handleAccelerationEvent(world, nowAccelerating, currentTime);
     }
 
     /**
@@ -165,7 +185,7 @@ public class WorldTimeController {
      * and the {@link #nightSkipHandling()} query must not derive this independently.
      */
     private static boolean isDay(long dayTime) {
-        return dayTime % 24000 < 12000;
+        return Math.floorMod(dayTime, 24000L) < 12000L;
     }
 
     /**
@@ -173,16 +193,36 @@ public class WorldTimeController {
      *
      * <p>Deliberately independent of the sleeping-player counts: the event only fires once vanilla's
      * own SleepStatus is satisfied, and that count is not reproducible from the Bukkit surface
-     * (SleepStatus excludes spectators and counts Paper's fauxSleeping flag). Recounting here is how
-     * the cancel and the skip disagreed — vanilla said "enough sleepers", the recount said no, and
+     * (SleepStatus excludes spectators and counts Paper's fauxSleeping). Recounting here is how
+     * the cancel and the skip disagreed -- vanilla said "enough sleepers", the recount said no, and
      * the raw vanilla jump went through. So this answers only what the event cannot: whether a live
      * controller governs this clock, and whether the clock reads night or day.</p>
      */
     public NightSkipHandling nightSkipHandling() {
         if (!accelerationEnabled || world == null) return NightSkipHandling.VANILLA;
+        // tick() does not advance the clock while the advance-time rule is off; cancelling the skip
+        // then would keep everyone in bed with time frozen. (26.3 does not fire the event in that
+        // state, so this is only a guard.)
+        if (!world.gameRuleAdvanceTime()) return NightSkipHandling.VANILLA;
         return world.time()
                 .map(currentTime -> isDay(currentTime) ? NightSkipHandling.SUPPRESS_JUMP : NightSkipHandling.CANCEL)
                 .orElse(NightSkipHandling.VANILLA);
+    }
+
+    /**
+     * Vanilla's own verdict that enough players are deep-sleeping, delivered by the platform when the
+     * NIGHT_SKIP event fires for this world. Vanilla re-runs that check every tick while it holds
+     * (the cancelled skip never wakes anyone), so a live sleep keeps this signal refreshed, and it
+     * goes stale within {@value #VANILLA_SLEEP_SIGNAL_TTL_TICKS} ticks of the players waking.
+     */
+    public void vanillaSleepSignal() {
+        vanillaSleepSignalTick = tickCounter;
+    }
+
+    private boolean vanillaSleepSignalFresh() {
+        // The sentinel is checked explicitly: subtracting Long.MIN_VALUE overflows to "fresh".
+        return vanillaSleepSignalTick != Long.MIN_VALUE
+                && tickCounter - vanillaSleepSignalTick <= VANILLA_SLEEP_SIGNAL_TTL_TICKS;
     }
 
     private boolean shouldAccelerate(PlatformWorld world, boolean isDay) {
@@ -191,24 +231,57 @@ public class WorldTimeController {
 
         if (isDay) return false;
 
-        if (totalPlayers == 0) return false;
+        // Vanilla's SleepStatus is the authority: while its night-skip keeps firing, enough players
+        // are sleeping by definition, whatever the plugin's own counts say.
+        if (vanillaSleepSignalFresh()) return true;
 
-        double percentage = ((double) sleepingPlayers / totalPlayers) * 100;
-        int required = world.gameRulePlayerSleepingPercentage();
-
-        if (context.platform().debug()) {
-            context.platform().logger().info("Should Accelerate boolean value for world " + key.asString() + " (percentage=" + percentage + " / " + required + ")");
-        }
-
-        return percentage >= required;
+        return enoughSleepers(world);
     }
 
-    private void handleAccelerationEvent(PlatformWorld world, boolean nowAccelerating) {
-        if (nowAccelerating && !accelerating) {
-            DebugService.log(context, "Time acceleration started for world " + world.keyAsString());
-        } else if (!nowAccelerating && accelerating) {
-            DebugService.log(context, "Time acceleration stopped for world " + world.keyAsString());
-        }
+    /**
+     * The plugin's own count, so acceleration starts the moment players lie down rather than 100
+     * ticks later when vanilla's skip fires. Mirrors vanilla's SleepStatus: at least one player
+     * actually in bed, sleeping-ignored players count as sleeping, and the number needed is
+     * {@code max(1, ceil(players * percentage / 100))} -- never zero.
+     *
+     * <p>{@code totalPlayers} and {@code sleepingPlayers} are refreshed by events (join/quit, world
+     * and game-mode changes, bed enter/leave). The sleeping-ignored count has no event -- AFK
+     * plugins flip it silently -- so it is read live; a cached value could otherwise keep a night
+     * accelerating after vanilla stopped agreeing.</p>
+     */
+    private boolean enoughSleepers(PlatformWorld world) {
+        if (totalPlayers <= 0 || sleepingPlayers <= 0) return false;
+
+        int percentage = world.gameRulePlayerSleepingPercentage();
+        int needed = Math.max(1, (int) Math.ceil(totalPlayers * percentage / 100.0));
+
+        return sleepingPlayers + world.sleepingIgnoredPlayerCount() >= needed;
+    }
+
+    private void handleAccelerationEvent(PlatformWorld world, boolean nowAccelerating, long currentTime) {
+        if (nowAccelerating == accelerating) return;
         accelerating = nowAccelerating;
+
+        if (!context.platform().debug()) return;
+        context.platform().logger().info("Time acceleration " + (nowAccelerating ? "started" : "stopped")
+                + " for world " + world.keyAsString()
+                + " (fullTime=" + currentTime + ", dayTime=" + Math.floorMod(currentTime, 24000L)
+                + ", vanillaSignal=" + vanillaSleepSignalFresh()
+                + ", sleeping=" + sleepingPlayers + "+" + world.sleepingIgnoredPlayerCount() + "/" + totalPlayers
+                + ", percentage=" + world.gameRulePlayerSleepingPercentage() + ")");
+    }
+
+    private void logResync(long currentTime, long expectedTime) {
+        if (!context.platform().debug()) return;
+        if (lastResyncLogTick != Long.MIN_VALUE && tickCounter - lastResyncLogTick < RESYNC_LOG_INTERVAL_TICKS) {
+            suppressedResyncLogs++;
+            return;
+        }
+        context.platform().logger().info("External time change detected for world " + key.asString()
+                + " (fullTime=" + currentTime + ", expected=" + expectedTime + ", delta=" + (currentTime - expectedTime)
+                + (suppressedResyncLogs > 0 ? ", " + suppressedResyncLogs + " more since the last report" : "")
+                + "). Resynchronizing controller.");
+        lastResyncLogTick = tickCounter;
+        suppressedResyncLogs = 0;
     }
 }

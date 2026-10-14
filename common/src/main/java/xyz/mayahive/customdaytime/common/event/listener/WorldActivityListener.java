@@ -42,7 +42,9 @@ public class WorldActivityListener {
                 () -> {
                     int totalPlayers = world.playerCount();
                     context.worldTimeManager().setTotalPlayers(key, totalPlayers);
-                    if (platform.debug()) platform.logger().info("Registered WorldPlayerCountChangeEvent. Updated total players count to " + totalPlayers);
+                    if (platform.debug()) platform.logger().info("Registered WorldPlayerCountChangeEvent for " + key.asString()
+                            + ". Updated total players count to " + totalPlayers
+                            + " (sleeping-ignored right now: " + world.sleepingIgnoredPlayerCount() + ")");
                 },
                 1
         );
@@ -58,7 +60,10 @@ public class WorldActivityListener {
                 () -> {
                     int sleepingPlayers = world.sleepingPlayerCount();
                     context.worldTimeManager().setSleepingPlayers(key, sleepingPlayers);
-                    if (platform.debug()) platform.logger().info("Registered WorldSleepingPlayerCountChangeEvent. Updated sleeping players count to " + sleepingPlayers);
+                    if (platform.debug()) platform.logger().info("Registered WorldSleepingPlayerCountChangeEvent for " + key.asString()
+                            + ". Updated sleeping players count to " + sleepingPlayers
+                            + " (sleeping-ignored right now: " + world.sleepingIgnoredPlayerCount()
+                            + ", fullTime=" + world.time().orElse(-1L) + ")");
                 },
                 1
         );

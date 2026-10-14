@@ -21,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerChangedWorldEvent;
+import org.bukkit.event.player.PlayerGameModeChangeEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import xyz.mayahive.customdaytime.common.event.EventBus;
@@ -45,6 +46,13 @@ public class WorldActivityListener implements Listener {
     @EventHandler
     public void onPlayerChangedWorld(PlayerChangedWorldEvent event) {
         eventBus.fire(new WorldPlayerCountChangeEvent(new PaperWorld(event.getFrom())));
+        eventBus.fire(new WorldPlayerCountChangeEvent(new PaperWorld(event.getPlayer().getWorld())));
+    }
+
+    @EventHandler
+    public void onPlayerGameModeChange(PlayerGameModeChangeEvent event) {
+        // Spectators do not count toward the sleep percentage. The count is sampled a tick later,
+        // once the mode has actually changed.
         eventBus.fire(new WorldPlayerCountChangeEvent(new PaperWorld(event.getPlayer().getWorld())));
     }
 }

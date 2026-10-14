@@ -1,6 +1,6 @@
 [versions]
 # --- Platform Depencies ---
-paper = "26.1.2.build.+"
+paper = "26.3.build.+"
 run-paper = "3.0.2"
 plugin-yml = "0.9.0"
 spongegradle = "2.3.1-SNAPSHOT"

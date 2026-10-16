@@ -62,6 +62,10 @@ in 26.1.2, so the jar loads on 26.1.2+. Bump `apiVersion` only when a newer-only
 - `.github/workflows/ci.yml` runs the full `./gradlew build` (Temurin 25, ubuntu-latest) on every
   push to `master`, the only branch. The Minecraft artifact resolves there, so this is the only
   gate that actually compiles `:sponge` — check it after any `common` change.
+  **As of 2026-10-15 the fork has never had a single Actions run** (0 in its history even after the
+  2.1.3 push, although the Actions API reports it enabled): a forked repo needs its workflows
+  enabled once in the GitHub *Actions* tab before pushes trigger them. Until then the sponge gate
+  is not actually being exercised.
 
 ### Release hygiene (binding, user instruction 2026-10-14)
 
@@ -311,8 +315,9 @@ commits there directly; there is no separate integration or feature branch, and 
 created. The old `daytime-corrections` branch was fast-forwarded into `master` and deleted.
 
 As of 2026-10-15 everything through the 2.1.3 release is pushed to `origin/master` (the 2026-10-13
-redesign `2e977c1` + `4561377` + `2c75f03`, then the 2.1.3 release commit). CI runs the full build
-(incl. `:sponge`) on each push — check it after pushing.
+redesign `2e977c1` + `4561377` + `2c75f03`, then the 2.1.3 release commit `d26071b`). CI is
+configured to run the full build (incl. `:sponge`) on each push but has never run on the fork
+(see *Build & test*) — enable it, then check it after pushing.
 
 To pull upstream fixes, add an `upstream` remote for `SeedimV/CustomDaytime` and merge into
 `master`. There is no longer a clean upstream-tracking branch, so expect to resolve fork-vs-upstream
